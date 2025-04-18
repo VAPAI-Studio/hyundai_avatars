@@ -6,7 +6,7 @@ A voice assistant for Hyundai that uses AI to answer questions about the brand.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/hyundai_avatars.git
+git clone https://github.com/yvesfogel/hyundai_avatars.git
 cd hyundai_avatars
 ```
 
