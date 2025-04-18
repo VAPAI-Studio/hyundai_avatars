@@ -26,8 +26,8 @@ class AudioPlayer:
                 return False
                 
             logger.info(f"Playing audio response from {audio_path}")
-            # pygame.mixer.music.load(audio_path)
-            # pygame.mixer.music.play()
+            pygame.mixer.music.load(audio_path)
+            pygame.mixer.music.play()
             
             # Wait for playback to finish
             while pygame.mixer.music.get_busy():

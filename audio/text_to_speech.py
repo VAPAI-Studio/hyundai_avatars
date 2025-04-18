@@ -15,7 +15,7 @@ from pydub import AudioSegment
 from datetime import datetime
 from utils.config import (
     ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, ELEVENLABS_MODEL_ID, 
-    VOICE_SETTINGS, RESPONSE_AUDIO_PATH
+    VOICE_SETTINGS, RESPONSE_AUDIO_PATH, USE_GRPC
 )
 from proto import audio2face_pb2
 from proto import audio2face_pb2_grpc
@@ -291,19 +291,46 @@ class TextToSpeech:
         
     def convert_text_to_speech(self, text):
         """
-        Convert text to speech using ElevenLabs API with streaming to Audio2Face.
-        Returns True if successful, False otherwise.
-        """
-        if not self.api_key or self.api_key == "your_elevenlabs_api_key_here":
-            logger.error("ElevenLabs API key not configured")
-            return False
+        Convert text to speech and handle the audio output based on USE_GRPC setting.
+        
+        Parameters:
+            text (str): Text to convert to speech
             
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            # Use streaming approach to send audio directly to Audio2Face
-            return self.push_audio_stream_to_audio2face(text)
+            if USE_GRPC:
+                # Use GRPC streaming to Audio2Face
+                self.push_audio_stream_to_audio2face(text)
+            else:
+                # Direct streaming from ElevenLabs
+                response = self.stream_audio_from_elevenlabs(text)
                 
+                # Save the audio to a temporary file
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
+                    for chunk in response.iter_content(chunk_size=4096):
+                        if chunk:
+                            temp_file.write(chunk)
+                    temp_path = temp_file.name
+                
+                # Convert to WAV format
+                audio_segment = AudioSegment.from_file(temp_path, format="mp3")
+                audio_segment.export(RESPONSE_AUDIO_PATH, format="wav")
+                
+                # Clean up
+                os.unlink(temp_path)
+                
+                # Play the audio file
+                from audio.audio_player import AudioPlayer
+                player = AudioPlayer()
+                player.play_audio(RESPONSE_AUDIO_PATH)
+                
+            return True
+            
         except Exception as e:
-            logger.error(f"Error converting text to speech: {e}")
+            logger.error(f"Error in text-to-speech conversion: {str(e)}")
+            traceback.print_exc()
             return False
             
     def test_voices(self):

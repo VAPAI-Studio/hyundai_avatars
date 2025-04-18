@@ -50,4 +50,3 @@ Thumbs.db
 
 # Secrets and sensitive data
 utils/__pycache__/
-utils/config.py 
