@@ -11,6 +11,8 @@ import traceback
 import tempfile
 import numpy as np
 import grpc
+import threading
+from pynput import keyboard
 from pydub import AudioSegment
 from datetime import datetime
 from utils.config import (
@@ -19,6 +21,7 @@ from utils.config import (
 )
 from proto import audio2face_pb2
 from proto import audio2face_pb2_grpc
+from audio.audio_player import AudioPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -42,30 +45,52 @@ class AudioBufferManager:
         self.total_duration = 0
         self.current_position = 0
         self.is_playing = False
+        self._lock = threading.Lock()
+        self._paused = False
     
     def add_buffer(self, audio_data):
         """Add a new buffer of audio data (float32 array)"""
         if len(audio_data) == 0:
             return
             
-        self.buffers.append(audio_data)
-        self.total_duration += len(audio_data) / self.sample_rate
-        logger.debug(f"Added buffer: {len(audio_data)} samples, total duration: {self.total_duration:.2f}s")
+        with self._lock:
+            self.buffers.append(audio_data)
+            self.total_duration += len(audio_data) / self.sample_rate
+            logger.debug(f"Added buffer: {len(audio_data)} samples, total duration: {self.total_duration:.2f}s")
     
     def reset(self):
         """Clear all buffers and reset state"""
-        self.buffers = []
-        self.total_duration = 0
-        self.current_position = 0
-        self.is_playing = False
-        logger.debug("Audio buffers reset")
+        with self._lock:
+            self.buffers = []
+            self.total_duration = 0
+            self.current_position = 0
+            self.is_playing = False
+            self._paused = False
+            logger.debug("Audio buffers reset")
     
     def get_all_audio(self):
         """Get all audio data as a single array"""
-        if not self.buffers:
-            return np.array([], dtype=np.float32)
+        with self._lock:
+            if not self.buffers:
+                return np.array([], dtype=np.float32)
+            return np.concatenate(self.buffers)
             
-        return np.concatenate(self.buffers)
+    def pause(self):
+        """Pause playback"""
+        with self._lock:
+            self._paused = True
+            self.is_playing = False
+            
+    def resume(self):
+        """Resume playback"""
+        with self._lock:
+            self._paused = False
+            self.is_playing = True
+            
+    def is_paused(self):
+        """Check if playback is paused"""
+        with self._lock:
+            return self._paused
 
 
 def log_time(message):
@@ -83,6 +108,47 @@ class TextToSpeech:
         self.api_url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
         self.test_audios_dir = "test_audios"
         self._ensure_test_audios_dir()
+        self.audio_player = AudioPlayer()
+        self._streaming_thread = None
+        self._stop_streaming = threading.Event()
+        self._paused = False
+        self._pause_lock = threading.Lock()
+        
+        # Set up keyboard listener
+        self._keyboard_listener = keyboard.Listener(on_press=self._handle_key_press)
+        self._keyboard_listener.start()
+        
+    def _handle_key_press(self, key):
+        """Handle key press events"""
+        try:
+            if key.char == 'p':  # Check if 'p' key was pressed
+                with self._pause_lock:
+                    if self._paused:
+                        self.resume_playback()
+                    else:
+                        self.pause_playback()
+        except AttributeError:
+            pass  # Ignore special keys
+            
+    def pause_playback(self):
+        """Pause the current audio playback"""
+        with self._pause_lock:
+            if not self._paused and self._streaming_thread and self._streaming_thread.is_alive():
+                self._paused = True
+                self.audio_player.is_playing = False
+                logger.info("Audio playback paused")
+                return True
+        return False
+        
+    def resume_playback(self):
+        """Resume the paused audio playback"""
+        with self._pause_lock:
+            if self._paused and self._streaming_thread and self._streaming_thread.is_alive():
+                self._paused = False
+                self.audio_player.is_playing = True
+                logger.info("Audio playback resumed")
+                return True
+        return False
         
     def _ensure_test_audios_dir(self):
         """Ensure the test_audios directory exists."""
@@ -189,105 +255,100 @@ class TextToSpeech:
             traceback.print_exc()
             raise
             
+    def _stream_audio_to_audio2face(self, text, instance_name="/World/audio2face/PlayerStreaming"):
+        """
+        Internal method to stream audio to Audio2Face in a separate thread.
+        """
+        try:
+            response = self.stream_audio_from_elevenlabs(text)
+            url = "localhost:50051"
+            channel = grpc.insecure_channel(url)
+            stub = audio2face_pb2_grpc.Audio2FaceStub(channel)
+            
+            start_marker = audio2face_pb2.PushAudioRequestStart(
+                samplerate=TARGET_SAMPLE_RATE,
+                instance_name=instance_name,
+                block_until_playback_is_finished=False,
+            )
+            
+            def request_generator():
+                yield audio2face_pb2.PushAudioStreamRequest(start_marker=start_marker)
+                
+                mp3_buffer = bytearray()
+                for chunk in response.iter_content(chunk_size=4096):
+                    if self._stop_streaming.is_set():
+                        break
+                        
+                    with self._pause_lock:
+                        while self._paused:
+                            time.sleep(0.1)
+                            if self._stop_streaming.is_set():
+                                break
+                        
+                    if not chunk:
+                        continue
+                        
+                    mp3_buffer.extend(chunk)
+                    
+                    if len(mp3_buffer) >= MIN_BUFFER_SIZE:
+                        try:
+                            audio_data, _ = self.process_mp3_data(mp3_buffer)
+                            yield audio2face_pb2.PushAudioStreamRequest(
+                                audio_data=audio_data.tobytes()
+                            )
+                            mp3_buffer = bytearray()
+                        except Exception as e:
+                            logger.warning(f"Warning: Error processing buffer: {str(e)}")
+                            mp3_buffer = bytearray()
+                            
+                    time.sleep(0.001)
+            
+            self.audio_player.is_playing = True
+            response = stub.PushAudioStream(request_generator())
+            
+            if response.success:
+                logger.info("Audio streaming completed successfully")
+            else:
+                logger.error(f"Error in audio streaming: {response.message}")
+                
+        except Exception as e:
+            logger.error(f"Error in audio streaming thread: {str(e)}")
+            traceback.print_exc()
+            
+        finally:
+            self.audio_player.is_playing = False
+            self._stop_streaming.clear()
+            self._paused = False
+            if channel:
+                channel.close()
+                
     def push_audio_stream_to_audio2face(self, text, instance_name="/World/audio2face/PlayerStreaming"):
         """
-        Stream audio from ElevenLabs to Audio2Face using buffer management.
-        
-        Parameters:
-            text (str): Text to convert to speech
-            instance_name (str): Prim path of A2F Streaming Audio Player
+        Start streaming audio from ElevenLabs to Audio2Face in a separate thread.
         """
-        log_time("Starting audio streaming process")
-        buffer_manager = AudioBufferManager(TARGET_SAMPLE_RATE)
-        block_until_playback_is_finished = True
-        mp3_buffer = bytearray()
-        
-        try:
-            # Get streaming response from ElevenLabs
-            response = self.stream_audio_from_elevenlabs(text)
+        # Stop any existing streaming
+        if self._streaming_thread and self._streaming_thread.is_alive():
+            self._stop_streaming.set()
+            self._streaming_thread.join(timeout=1.0)
             
-            # First phase: Process audio into buffers
-            log_time("Processing audio data into buffers")
-            for chunk in response.iter_content(chunk_size=4096):
-                if not chunk:
-                    continue
-                
-                # Add to MP3 buffer
-                mp3_buffer.extend(chunk)
-                
-                # Process when we have enough data
-                if len(mp3_buffer) >= MIN_BUFFER_SIZE:
-                    try:
-                        log_time(f"Processing MP3 buffer: {len(mp3_buffer)} bytes")
-                        audio_data, _ = self.process_mp3_data(mp3_buffer)
-                        buffer_manager.add_buffer(audio_data)
-                        mp3_buffer = bytearray()
-                    except Exception as e:
-                        logger.warning(f"Warning: Error processing buffer: {str(e)}")
-                        # Continue even if processing this chunk failed
-                        mp3_buffer = bytearray()
-            
-            # Process any remaining data
-            if mp3_buffer:
-                try:
-                    log_time(f"Processing final MP3 buffer: {len(mp3_buffer)} bytes")
-                    audio_data, _ = self.process_mp3_data(mp3_buffer)
-                    buffer_manager.add_buffer(audio_data)
-                except Exception as e:
-                    logger.warning(f"Warning: Error processing final buffer: {str(e)}")
-            
-            # Second phase: Send to Audio2Face
-            url = "localhost:50051"  # Default gRPC server URL
-            with grpc.insecure_channel(url) as channel:
-                log_time(f"Channel created to Audio2Face at {url}")
-                stub = audio2face_pb2_grpc.Audio2FaceStub(channel)
-                
-                # Get all processed audio for streaming
-                all_audio = buffer_manager.get_all_audio()
-                log_time(f"Preparing to send {len(all_audio)} samples to Audio2Face")
-                
-                def request_generator():
-                    # First request contains the start marker
-                    start_marker = audio2face_pb2.PushAudioRequestStart(
-                        samplerate=TARGET_SAMPLE_RATE,
-                        instance_name=instance_name,
-                        block_until_playback_is_finished=block_until_playback_is_finished,
-                    )
-                    yield audio2face_pb2.PushAudioStreamRequest(start_marker=start_marker)
-                    log_time(f"Sent start marker with sample rate {TARGET_SAMPLE_RATE}Hz")
-                    
-                    # Break audio into manageable chunks
-                    for i in range(0, len(all_audio), FRAME_BUFFER_SIZE):
-                        chunk = all_audio[i:i+FRAME_BUFFER_SIZE]
-                        if i % (FRAME_BUFFER_SIZE * 10) == 0:  # Log every 10 chunks
-                            log_time(f"Sending audio chunk at position {i}/{len(all_audio)}")
-                        yield audio2face_pb2.PushAudioStreamRequest(
-                            audio_data=chunk.tobytes()
-                        )
-                        # Small sleep to avoid overwhelming the receiver
-                        time.sleep(0.005)
-                    
-                    log_time("All audio data sent")
-                
-                # Send all audio data in a single gRPC streaming call
-                log_time("Starting Audio2Face streaming")
-                response = stub.PushAudioStream(request_generator())
-                
-                if response.success:
-                    log_time("SUCCESS: Audio playback completed")
-                    return True
-                else:
-                    log_time(f"ERROR: {response.message}")
-                    return False
-        
-        except Exception as e:
-            logger.error(f"Error in push_audio_stream_to_audio2face: {str(e)}")
-            traceback.print_exc()
-            return False
-        
-        buffer_manager.reset()
-        log_time("Audio streaming process completed")
+        # Start new streaming thread
+        self._stop_streaming.clear()
+        self._streaming_thread = threading.Thread(
+            target=self._stream_audio_to_audio2face,
+            args=(text, instance_name)
+        )
+        self._streaming_thread.daemon = True
+        self._streaming_thread.start()
         return True
+        
+    def stop_streaming(self):
+        """Stop the current audio streaming."""
+        if self._streaming_thread and self._streaming_thread.is_alive():
+            self._stop_streaming.set()
+            self._streaming_thread.join(timeout=1.0)
+            self.audio_player.is_playing = False
+            return True
+        return False
         
     def convert_text_to_speech(self, text):
         """
@@ -301,33 +362,31 @@ class TextToSpeech:
         """
         try:
             if USE_GRPC:
-                # Use GRPC streaming to Audio2Face
                 self.push_audio_stream_to_audio2face(text)
             else:
-                # Direct streaming from ElevenLabs
-                response = self.stream_audio_from_elevenlabs(text)
+                def audio_thread():
+                    try:
+                        response = self.stream_audio_from_elevenlabs(text)
+                        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
+                            for chunk in response.iter_content(chunk_size=4096):
+                                if chunk:
+                                    temp_file.write(chunk)
+                                with self._pause_lock:
+                                    while self._paused:
+                                        time.sleep(0.1)
+                        temp_path = temp_file.name
+                        audio_segment = AudioSegment.from_file(temp_path, format="mp3")
+                        audio_segment.export(RESPONSE_AUDIO_PATH, format="wav")
+                        os.unlink(temp_path)
+                        self.audio_player.play_audio(RESPONSE_AUDIO_PATH)
+                    except Exception as e:
+                        logger.error(f"Error in audio thread: {str(e)}")
+                        traceback.print_exc()
                 
-                # Save the audio to a temporary file
-                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
-                    for chunk in response.iter_content(chunk_size=4096):
-                        if chunk:
-                            temp_file.write(chunk)
-                    temp_path = temp_file.name
-                
-                # Convert to WAV format
-                audio_segment = AudioSegment.from_file(temp_path, format="mp3")
-                audio_segment.export(RESPONSE_AUDIO_PATH, format="wav")
-                
-                # Clean up
-                os.unlink(temp_path)
-                
-                # Play the audio file
-                from audio.audio_player import AudioPlayer
-                player = AudioPlayer()
-                player.play_audio(RESPONSE_AUDIO_PATH)
-                
+                audio_thread = threading.Thread(target=audio_thread)
+                audio_thread.daemon = True
+                audio_thread.start()
             return True
-            
         except Exception as e:
             logger.error(f"Error in text-to-speech conversion: {str(e)}")
             traceback.print_exc()
@@ -394,3 +453,8 @@ class TextToSpeech:
         except Exception as e:
             logger.error(f"Error testing models: {e}")
             return None
+
+    def __del__(self):
+        """Clean up keyboard listener"""
+        if hasattr(self, '_keyboard_listener'):
+            self._keyboard_listener.stop()
