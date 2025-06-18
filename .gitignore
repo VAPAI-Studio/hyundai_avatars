@@ -40,6 +40,8 @@ ENV/
 *.wav
 temp_audio.wav
 response_audio.wav
+audio2face_scenes/
+*.usd
 
 # Logs
 *.log

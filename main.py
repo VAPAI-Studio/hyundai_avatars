@@ -17,7 +17,6 @@ from ai.ai_processor import AIProcessor
 from audio.text_to_speech import TextToSpeech
 from audio.audio_player import AudioPlayer
 from utils.config import AUDIO_DEVICE
-from utils.ue_bridge import UE5Bridge
 
 # Ensure the log directory exists
 log_dir = "logs"
@@ -88,7 +87,6 @@ class VoiceAssistant:
         self.ai_processor = AIProcessor()
         self.text_to_speech = TextToSpeech()
         self.audio_player = AudioPlayer()
-        self.ue5_bridge = UE5Bridge()
         self.running = False
         
         # Conversation memory
@@ -111,7 +109,6 @@ class VoiceAssistant:
         self.setup_signal_handlers()
         self.running = True
         self.recorder.start_listening()
-        self.ue5_bridge.start_watching()
         logger.info("Voice Assistant started. Listening for speech...")
         
         try:
@@ -132,7 +129,6 @@ class VoiceAssistant:
         logger.info("Stopping Voice Assistant...")
         self.running = False
         self.recorder.stop_listening()
-        self.ue5_bridge.stop_watching()
         
     def _check_conversation_timeout(self):
         """Check if the conversation has timed out and reset if needed."""

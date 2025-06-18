@@ -8,7 +8,6 @@ from .audio.text_to_speech import TextToSpeech
 from .audio.audio_player import AudioPlayer
 from .ai.ai_processor import AIProcessor
 from .utils.config import Config
-from .utils.ue_bridge import UE5Bridge
 
 __all__ = [
     'AudioRecorder',
