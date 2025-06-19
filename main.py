@@ -9,6 +9,7 @@ import signal
 import sys
 import pyaudio
 from datetime import datetime
+import torch
 
 # Import our modules
 from audio.audio_recorder import AudioRecorder
@@ -17,6 +18,7 @@ from ai.ai_processor import AIProcessor
 from audio.text_to_speech import TextToSpeech
 from audio.audio_player import AudioPlayer
 from utils.config import AUDIO_DEVICE
+from utils.model_cache import print_cache_info
 
 # Ensure the log directory exists
 log_dir = "logs"
@@ -53,23 +55,38 @@ logger = logging.getLogger(__name__)
 
 def list_audio_devices():
     """List all available audio input devices."""
-    p = pyaudio.PyAudio()
-    devices = []
-    
-    for i in range(p.get_device_count()):
-        device_info = p.get_device_info_by_index(i)
-        if device_info.get('maxInputChannels') > 0:  # Only include input devices
-            devices.append((i, device_info.get('name')))
-    
-    p.terminate()
-    return devices
+    print("DEBUG: Starting list_audio_devices()")
+    try:
+        p = pyaudio.PyAudio()
+        devices = []
+        
+        for i in range(p.get_device_count()):
+            device_info = p.get_device_info_by_index(i)
+            if device_info.get('maxInputChannels') > 0:  # Only include input devices
+                devices.append((i, device_info.get('name')))
+        
+        p.terminate()
+        print(f"DEBUG: Found {len(devices)} audio input devices")
+        return devices
+    except Exception as e:
+        print(f"DEBUG: Error in list_audio_devices: {e}")
+        return []
 
 class VoiceAssistant:
     def __init__(self):
+        print("DEBUG: Starting VoiceAssistant initialization")
         logger.info("Initializing Voice Assistant...")
         
+        # Show Silero VAD model cache information
+        print("DEBUG: About to show cache info")
+        print_cache_info()
+        print("DEBUG: Cache info displayed")
+        
         # List available audio devices
+        print("DEBUG: About to list audio devices")
         devices = list_audio_devices()
+        print("DEBUG: Audio devices listed")
+        
         if devices:
             logger.info("\nAvailable audio input devices:")
             for idx, (device_id, device_name) in enumerate(devices):
@@ -82,17 +99,24 @@ class VoiceAssistant:
         else:
             logger.warning("No audio input devices found!")
             
+        print("DEBUG: About to initialize audio components")
         self.recorder = AudioRecorder()
+        print("DEBUG: AudioRecorder initialized")
         self.speech_to_text = SpeechToText()
+        print("DEBUG: SpeechToText initialized")
         self.ai_processor = AIProcessor()
+        print("DEBUG: AIProcessor initialized")
         self.text_to_speech = TextToSpeech()
+        print("DEBUG: TextToSpeech initialized")
         self.audio_player = AudioPlayer()
+        print("DEBUG: AudioPlayer initialized")
         self.running = False
         
         # Conversation memory
         self.conversation_history = []
         self.last_conversation_time = time.time()
         self.conversation_timeout = 180  # 3 minutes in seconds
+        print("DEBUG: VoiceAssistant initialization complete")
         
     def setup_signal_handlers(self):
         """Set up signal handlers for graceful shutdown."""

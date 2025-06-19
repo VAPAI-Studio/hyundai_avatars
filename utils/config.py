@@ -30,11 +30,13 @@ class Config:
 
         # Audio Settings
         self.AUDIO_DEVICE = int(os.getenv("AUDIO_DEVICE", "2")) if os.getenv("AUDIO_DEVICE") else None
-        self.SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "48000"))
+        self.SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))  # Silero VAD works best at 16kHz
         self.CHANNELS = int(os.getenv("CHANNELS", "1"))
-        self.SILENCE_THRESHOLD = int(os.getenv("SILENCE_THRESHOLD", "500"))
-        self.SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "0.5"))
         self.MIN_PHRASE_DURATION = float(os.getenv("MIN_PHRASE_DURATION", "0.5"))
+        
+        # Silero VAD Settings
+        self.SILENCE_TIMEOUT = float(os.getenv("SILENCE_TIMEOUT", "1.5"))  # Seconds of silence before stopping recording
+        self.MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.3"))  # Minimum speech duration to consider valid
 
         # Audio File Paths
         self.TEMP_AUDIO_PATH = "temp_audio.wav"

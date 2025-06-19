@@ -27,3 +27,7 @@ grpcio
 pydub
 protobuf
 pygame
+
+# Silero VAD dependencies
+torch
+torchaudio
