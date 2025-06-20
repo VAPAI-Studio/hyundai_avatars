@@ -365,3 +365,25 @@ class AudioRecorder:
     def reset_detection_event(self):
         """Reset the audio detection event to listen for new speech."""
         self.audio_detected_event.clear()
+        
+    def get_audio_data(self):
+        """Get the recorded audio data as numpy array."""
+        try:
+            if not self.recording_frames:
+                return None
+                
+            # Convert bytes back to numpy array
+            audio_data = []
+            for frame_bytes in self.recording_frames:
+                frame_data = np.frombuffer(frame_bytes, dtype=np.float32)
+                audio_data.extend(frame_data)
+                
+            return np.array(audio_data)
+            
+        except Exception as e:
+            logger.error(f"Error getting audio data: {e}")
+            return None
+            
+    def stop(self):
+        """Stop the audio recorder."""
+        return self.stop_listening()

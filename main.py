@@ -1,139 +1,136 @@
+#!/usr/bin/env python3
 """
-Main application logic for the Hyundai Voice Assistant.
+Hyundai Avatars Voice Assistant
+Main entry point for the voice assistant application.
 """
 
-import time
-import logging
+import sys
 import os
 import signal
-import sys
-import pyaudio
-from datetime import datetime
-import torch
 
-# Import our modules
-from audio.audio_recorder import AudioRecorder
-from audio.speech_to_text import SpeechToText
-from ai.ai_processor import AIProcessor
-from audio.text_to_speech import TextToSpeech
-from audio.audio_player import AudioPlayer
-from utils.config import AUDIO_DEVICE
-from utils.model_cache import print_cache_info
+# Add the project root to the Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Ensure the log directory exists
-log_dir = "logs"
+print("=== Starting Hyundai Avatars Voice Assistant ===")
+print("Testing imports...")
+
 try:
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-        print(f"Created log directory: {log_dir}")
-    else:
-        print(f"Log directory already exists: {log_dir}")
-        
-    log_file = os.path.join(log_dir, f"voice_assistant_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    print(f"Log file path: {log_file}")
-    
-    # Test if we can write to the log file
-    with open(log_file, 'a') as f:
-        f.write("=== Log file write test ===\n")
-    print("Successfully wrote to log file")
-    
+    print("Importing SpeechToText...")
+    from audio.speech_to_text import SpeechToText
+    print("SpeechToText imported successfully")
 except Exception as e:
-    print(f"Error setting up logging: {e}")
-    sys.exit(1)
+    print(f"ERROR importing SpeechToText: {e}")
+    import traceback
+    traceback.print_exc()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
-)
+try:
+    print("Importing StreamingLLMProcessor...")
+    from ai.streaming_llm_processor import StreamingLLMProcessor
+    print("StreamingLLMProcessor imported successfully")
+except Exception as e:
+    print(f"ERROR importing StreamingLLMProcessor: {e}")
+    import traceback
+    traceback.print_exc()
 
-logger = logging.getLogger(__name__)
+try:
+    print("Importing StreamingTTSProcessor...")
+    from audio.streaming_tts_processor import StreamingTTSProcessor
+    print("StreamingTTSProcessor imported successfully")
+except Exception as e:
+    print(f"ERROR importing StreamingTTSProcessor: {e}")
+    import traceback
+    traceback.print_exc()
 
-def list_audio_devices():
-    """List all available audio input devices."""
-    print("DEBUG: Starting list_audio_devices()")
+try:
+    print("Importing AudioRecorder...")
+    from audio.audio_recorder import AudioRecorder
+    print("AudioRecorder imported successfully")
+except Exception as e:
+    print(f"ERROR importing AudioRecorder: {e}")
+    import traceback
+    traceback.print_exc()
+
+print("All imports successful!")
+
+def main():
+    """Main entry point for the Hyundai Voice Assistant."""
+    print("=== Starting Hyundai Avatars Voice Assistant ===")
+    
     try:
-        p = pyaudio.PyAudio()
-        devices = []
+        print("Step 1: Creating VoiceAssistant instance...")
+        assistant = VoiceAssistant()
+        print("Step 2: VoiceAssistant created successfully")
         
-        for i in range(p.get_device_count()):
-            device_info = p.get_device_info_by_index(i)
-            if device_info.get('maxInputChannels') > 0:  # Only include input devices
-                devices.append((i, device_info.get('name')))
+        print("Step 3: Starting VoiceAssistant...")
+        assistant.start()
+        print("Step 4: VoiceAssistant started successfully")
         
-        p.terminate()
-        print(f"DEBUG: Found {len(devices)} audio input devices")
-        return devices
     except Exception as e:
-        print(f"DEBUG: Error in list_audio_devices: {e}")
-        return []
-
-def print_ai_models_info(ai_processor):
-    """Print information about available AI models."""
-    print("\n=== Available AI Models ===")
-    models_info = ai_processor.get_available_models()
-    
-    for model_name, info in models_info.items():
-        status = info["status"]
-        if status == "available":
-            model = info.get("model", "Unknown")
-            if model_name == "local_llm" and "available_models" in info:
-                available_models = info["available_models"]
-                print(f"✅ {model_name.upper()}: {model} (Available models: {', '.join(available_models)})")
-            else:
-                print(f"✅ {model_name.upper()}: {model}")
-        else:
-            reason = info.get("reason", "Unknown reason")
-            print(f"❌ {model_name.upper()}: {reason}")
-    
-    print("==========================\n")
+        print(f"ERROR during initialization: {e}")
+        import traceback
+        traceback.print_exc()
+        print("Press Enter to exit...")
+        input()
+    return 0
 
 class VoiceAssistant:
     def __init__(self):
-        logger.info("Initializing Voice Assistant...")
+        """Initialize the Voice Assistant with all components."""
+        print("Initializing Voice Assistant...")
         
-        # Show Silero VAD model cache information
-        print_cache_info()
-        
-        # List available audio devices
-        devices = list_audio_devices()
-        
-        if devices:
-            logger.info("\nAvailable audio input devices:")
-            for idx, (device_id, device_name) in enumerate(devices):
-                logger.info(f"  {idx+1}. ID {device_id}: {device_name}")
+        try:
+            print("  - Step 1: Initializing SpeechToText...")
+            self.speech_to_text = SpeechToText()
+            print("  - Step 1: SpeechToText initialized")
             
-            if AUDIO_DEVICE is not None:
-                logger.info(f"\nUsing configured device: {AUDIO_DEVICE}")
-            else:
-                logger.info("\nUsing default microphone")
-        else:
-            logger.warning("No audio input devices found!")
+            print("  - Step 2: Initializing StreamingLLMProcessor...")
+            self.streaming_llm_processor = StreamingLLMProcessor()
+            print("  - Step 2: StreamingLLMProcessor initialized")
             
-        self.recorder = AudioRecorder()
-        self.speech_to_text = SpeechToText()
-        self.ai_processor = AIProcessor()
-        self.text_to_speech = TextToSpeech()
-        self.audio_player = AudioPlayer()
-        self.running = False
+            print("  - Step 3: Initializing StreamingTTSProcessor...")
+            self.streaming_tts_processor = StreamingTTSProcessor()
+            print("  - Step 3: StreamingTTSProcessor initialized")
+            
+            print("  - Step 4: Initializing AudioRecorder...")
+            self.recorder = AudioRecorder()
+            print("  - Step 4: AudioRecorder initialized")
+            
+            print("  - Step 5: Setting up streaming callbacks...")
+            self._setup_streaming_callbacks()
+            print("  - Step 5: Streaming callbacks set up")
+            
+            # State management
+            self.running = False
+            
+            print("Voice Assistant initialized successfully!")
+            
+        except Exception as e:
+            print(f"ERROR in VoiceAssistant initialization: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
-        # Show AI models information
-        print_ai_models_info(self.ai_processor)
+    def _setup_streaming_callbacks(self):
+        """Set up callbacks for the streaming TTS processor."""
+        def on_chunk_processed(chunk, status):
+            print(f"TTS Chunk processed: '{chunk.text[:30]}...' - {status}")
         
-        # Conversation memory
-        self.conversation_history = []
-        self.last_conversation_time = time.time()
-        self.conversation_timeout = 180  # 3 minutes in seconds
-        print("DEBUG: VoiceAssistant initialization complete")
+        def on_audio_ready(audio_data):
+            print(f"Audio ready: {len(audio_data)} samples")
+        
+        def on_streaming_complete():
+            print("Streaming TTS completed")
+        
+        self.streaming_tts_processor.set_callbacks(
+            on_chunk_processed=on_chunk_processed,
+            on_audio_ready=on_audio_ready,
+            on_streaming_complete=on_streaming_complete
+        )
         
     def setup_signal_handlers(self):
         """Set up signal handlers for graceful shutdown."""
         def signal_handler(sig, frame):
-            logger.info("Shutdown signal received")
+            print("Shutdown signal received")
             self.stop()
             sys.exit(0)
             
@@ -145,7 +142,7 @@ class VoiceAssistant:
         self.setup_signal_handlers()
         self.running = True
         self.recorder.start_listening()
-        logger.info("Voice Assistant started. Listening for speech...")
+        print("Voice Assistant started. Listening for speech...")
         
         try:
             while self.running:
@@ -157,69 +154,55 @@ class VoiceAssistant:
                     self.recorder.reset_detection_event()
                     
         except Exception as e:
-            logger.error(f"Error in main loop: {e}")
+            print(f"Error in main loop: {e}")
             self.stop()
+            
+    def _process_speech(self):
+        """Process detected speech through the pipeline."""
+        try:
+            print("Speech detected! Processing...")
+            
+            # Convert speech to text
+            audio_data = self.recorder.get_audio_data()
+            if audio_data is None:
+                print("No audio data available")
+                return
+                
+            print("Converting speech to text...")
+            text = self.speech_to_text.convert(audio_data)
+            if not text or text.strip() == "":
+                print("No text detected from speech")
+                return
+                
+            print(f"Transcribed text: '{text}'")
+            
+            # Generate response using streaming LLM
+            print("Generating response with streaming LLM...")
+            response_text = self.streaming_llm_processor.generate_response(text)
+            if not response_text:
+                print("No response generated")
+                return
+                
+            print(f"Generated response: '{response_text}'")
+            
+            # Convert response to speech using streaming TTS
+            print("Converting response to speech...")
+            self.streaming_tts_processor.process_text(response_text)
+            
+        except Exception as e:
+            print(f"Error processing speech: {e}")
+            import traceback
+            traceback.print_exc()
             
     def stop(self):
         """Stop the voice assistant."""
-        logger.info("Stopping Voice Assistant...")
+        print("Stopping Voice Assistant...")
         self.running = False
-        self.recorder.stop_listening()
-        
-    def _check_conversation_timeout(self):
-        """Check if the conversation has timed out and reset if needed."""
-        current_time = time.time()
-        if current_time - self.last_conversation_time > self.conversation_timeout:
-            logger.info("Conversation timed out after 3 minutes of inactivity. Resetting memory.")
-            self.conversation_history = []
-            return True
-        return False
-        
-    def _process_speech(self):
-        """Process detected speech and generate a response."""
-        try:
-            # Convert speech to text
-            stt_start = time.time()
-            text = self.speech_to_text.convert_audio_to_text()
-            stt_time = time.time() - stt_start
-            
-            if not text:
-                return
-                
-            # Process with AI model
-            ai_start = time.time()
-            model, response = self.ai_processor.process_with_all_available(text, self.conversation_history)
-            ai_time = time.time() - ai_start
-            
-            if not response or not model:
-                return
-                
-            # Convert response to speech and stream directly to Audio2Face
-            tts_start = time.time()
-            if self.text_to_speech.convert_text_to_speech(response):
-                tts_time = time.time() - tts_start
-                
-                # Log all timings
-                total_time = time.time() - stt_start
-                print("\n=== Processing Times ===")
-                print(f"Speech to Text: {stt_time:.2f}s")
-                print(f"AI Processing ({model}): {ai_time:.2f}s")
-                print(f"Text to Speech & Streaming: {tts_time:.2f}s")
-                print(f"Total Time: {total_time:.2f}s")
-                print("=====================")
-                
-        except Exception as e:
-            logger.error(f"Error processing speech: {e}")
-
-def main():
-    """Main entry point for the Hyundai Voice Assistant."""
-    try:
-        assistant = VoiceAssistant()
-        assistant.start()
-    except Exception as e:
-        logger.error(f"Fatal error: {str(e)}", exc_info=True)
-        return 1
-    return 0
+        if self.recorder:
+            self.recorder.stop()
+        print("Voice Assistant stopped")
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    print("Starting main function...")
+    main()
+    print("Main function completed") 

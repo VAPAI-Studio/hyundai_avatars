@@ -173,6 +173,67 @@ class TextToSpeech:
                 
         return max(indices) + 1 if indices else 1
         
+    def stream_text(self, text: str):
+        """
+        Stream text to speech using ElevenLabs API.
+        
+        Args:
+            text: Text to convert to speech
+            
+        Yields:
+            Audio chunks as numpy arrays
+        """
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream"
+        
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": self.api_key
+        }
+        
+        data = {
+            "text": text,
+            "model_id": self.model_id,
+            "voice_settings": self.voice_settings
+        }
+        
+        try:
+            response = requests.post(url, json=data, headers=headers, stream=True)
+            
+            if response.status_code != 200:
+                logger.error(f"ElevenLabs API Error: {response.status_code} - {response.text}")
+                return
+            
+            # Process the audio stream
+            mp3_buffer = bytearray()
+            
+            for chunk in response.iter_content(chunk_size=4096):
+                if chunk:
+                    mp3_buffer.extend(chunk)
+                    
+                    if len(mp3_buffer) >= MIN_BUFFER_SIZE:
+                        try:
+                            processed_audio, _ = self.process_mp3_data(mp3_buffer)
+                            if processed_audio is not None:
+                                yield processed_audio
+                            mp3_buffer = bytearray()
+                        except Exception as e:
+                            logger.warning(f"Error processing MP3 buffer: {e}")
+                            mp3_buffer = bytearray()
+            
+            # Process any remaining data
+            if mp3_buffer:
+                try:
+                    processed_audio, _ = self.process_mp3_data(mp3_buffer)
+                    if processed_audio is not None:
+                        yield processed_audio
+                except Exception as e:
+                    logger.warning(f"Error processing final MP3 buffer: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error streaming from ElevenLabs: {e}")
+            return
+
     def stream_audio_from_elevenlabs(self, text):
         """
         Stream audio from ElevenLabs TTS API.

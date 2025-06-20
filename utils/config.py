@@ -39,6 +39,7 @@ class Config:
         # Audio Settings
         self.AUDIO_DEVICE = int(os.getenv("AUDIO_DEVICE", "2")) if os.getenv("AUDIO_DEVICE") else None
         self.SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))  # Silero VAD works best at 16kHz
+        self.TARGET_SAMPLE_RATE = int(os.getenv("TARGET_SAMPLE_RATE", "24000"))  # Target sample rate for TTS output
         self.CHANNELS = int(os.getenv("CHANNELS", "1"))
         self.MIN_PHRASE_DURATION = float(os.getenv("MIN_PHRASE_DURATION", "0.5"))
         
@@ -68,11 +69,25 @@ class Config:
 
         # GRPC Settings
         self.USE_GRPC = os.getenv("USE_GRPC", "true").lower() == "true"
+        
+        # Audio2Face Settings
+        self.AUDIO2FACE_HOST = os.getenv("AUDIO2FACE_HOST", "127.0.0.1")
+        self.AUDIO2FACE_PORT = int(os.getenv("AUDIO2FACE_PORT", "50051"))
+        
+        # Streaming Pipeline Settings
+        self.USE_STREAMING_PIPELINE = os.getenv("USE_STREAMING_PIPELINE", "true").lower() == "true"
+        self.STREAMING_CHUNK_STRATEGY = os.getenv("STREAMING_CHUNK_STRATEGY", "semantic")  # "semantic", "sentence", "phrase", "pause"
+        self.STREAMING_MAX_WORKERS = int(os.getenv("STREAMING_MAX_WORKERS", "3"))
+        self.STREAMING_MIN_CHUNK_SIZE = int(os.getenv("STREAMING_MIN_CHUNK_SIZE", "20"))
+        self.STREAMING_MAX_CHUNK_SIZE = int(os.getenv("STREAMING_MAX_CHUNK_SIZE", "200"))
 
 # Create a global instance
 config = Config()
 
 # Export all settings as module-level variables for backward compatibility
+print("DEBUG: Exporting config variables...")
 for key, value in config.__dict__.items():
     if not key.startswith('_'):
-        globals()[key] = value 
+        globals()[key] = value
+        print(f"DEBUG: Exported {key} = {value}")
+print("DEBUG: Config export completed")
