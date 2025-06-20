@@ -6,7 +6,8 @@ A voice assistant for Hyundai that uses AI to answer questions about the brand. 
 
 - **Silero VAD Integration**: Advanced voice activity detection using Silero VAD for precise speech detection
 - **Interruption Support**: Can detect and respond to user interruptions while the avatar is speaking
-- **Multi-AI Provider Support**: OpenAI, Anthropic, and DeepSeek integration
+- **Multi-AI Provider Support**: OpenAI, Anthropic, DeepSeek, and Local LLM integration
+- **Local LLM Support**: Run models like Mistral 7B locally using Ollama
 - **Real-time Audio Processing**: Streams audio directly to Audio2Face for seamless avatar interaction
 - **Configurable Settings**: Easy configuration through environment variables
 
@@ -43,6 +44,66 @@ Then edit the `.env` file and add your API keys:
 ```bash
 python main.py
 ```
+
+## Local LLM Setup (Optional)
+
+The voice assistant supports running local LLM models using Ollama. This allows you to use models like Mistral 7B without requiring API keys or internet connectivity.
+
+### Installing Ollama
+
+1. Visit [https://ollama.ai](https://ollama.ai) and download Ollama for your operating system
+2. Install and start Ollama:
+   - **Windows**: Ollama should start automatically after installation
+   - **macOS/Linux**: Run `ollama serve` in terminal
+
+### Setting up Local LLM
+
+1. Use the setup utility to manage your local models:
+```bash
+python utils/local_llm_setup.py
+```
+
+2. Pull a model (e.g., Mistral 7B):
+```bash
+ollama pull mistral:7b
+```
+
+3. Enable local LLM in your `.env` file:
+```bash
+USE_LOCAL_LLM=true
+LOCAL_LLM_MODEL=mistral:7b
+```
+
+### Local LLM Configuration
+
+Add these variables to your `.env` file:
+
+```bash
+# Local LLM Settings
+USE_LOCAL_LLM=true
+OLLAMA_URL=http://localhost:11434
+LOCAL_LLM_MODEL=mistral:7b
+LOCAL_LLM_TEMPERATURE=0.7
+LOCAL_LLM_MAX_TOKENS=500
+```
+
+### Available Models
+
+Popular models you can use with Ollama:
+- `mistral:7b` - Fast and efficient 7B parameter model
+- `llama2:7b` - Meta's Llama 2 model
+- `codellama:7b` - Code-focused model
+- `phi:2.7b` - Microsoft's Phi model (very fast)
+- `gemma:2b` - Google's Gemma model (lightweight)
+
+### Testing Local LLM
+
+Test your local LLM setup:
+```bash
+python utils/local_llm_setup.py
+```
+
+Choose option 3 to test a specific model.
 
 ## Silero VAD Configuration
 
@@ -84,6 +145,16 @@ python tests/silero_vad_demo.py
 ## Configuration
 
 All configuration settings are in the `.env` file. See `.env.example` for available options.
+
+### AI Provider Selection
+
+You can specify which AI provider to use by setting `AI_PROVIDER` in your `.env` file:
+
+- `fastest` (default) - Uses the fastest responding model
+- `chatgpt` - Uses OpenAI's ChatGPT
+- `claude` - Uses Anthropic's Claude
+- `deepseek` - Uses DeepSeek
+- `local_llm` - Uses local LLM via Ollama
 
 ## Security
 

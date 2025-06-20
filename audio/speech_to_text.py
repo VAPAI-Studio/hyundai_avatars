@@ -23,16 +23,20 @@ class SpeechToText:
                 
             text = self.recognizer.recognize_google(audio_data, language=LANGUAGE)
             logger.info(f"Recognized text: {text}")
+            print(f"Speech-to-text finished: '{text}'")
             return text
             
         except sr.UnknownValueError:
             logger.warning("Speech recognition could not understand audio")
+            print("Speech-to-text finished: No speech detected")
             return None
             
         except sr.RequestError as e:
             logger.error(f"Could not request results from service; {e}")
+            print(f"Speech-to-text finished: Error - {e}")
             return None
             
         except Exception as e:
             logger.error(f"Error converting speech to text: {e}")
+            print(f"Speech-to-text finished: Error - {e}")
             return None

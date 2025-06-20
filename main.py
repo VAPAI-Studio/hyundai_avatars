@@ -72,20 +72,35 @@ def list_audio_devices():
         print(f"DEBUG: Error in list_audio_devices: {e}")
         return []
 
+def print_ai_models_info(ai_processor):
+    """Print information about available AI models."""
+    print("\n=== Available AI Models ===")
+    models_info = ai_processor.get_available_models()
+    
+    for model_name, info in models_info.items():
+        status = info["status"]
+        if status == "available":
+            model = info.get("model", "Unknown")
+            if model_name == "local_llm" and "available_models" in info:
+                available_models = info["available_models"]
+                print(f"✅ {model_name.upper()}: {model} (Available models: {', '.join(available_models)})")
+            else:
+                print(f"✅ {model_name.upper()}: {model}")
+        else:
+            reason = info.get("reason", "Unknown reason")
+            print(f"❌ {model_name.upper()}: {reason}")
+    
+    print("==========================\n")
+
 class VoiceAssistant:
     def __init__(self):
-        print("DEBUG: Starting VoiceAssistant initialization")
         logger.info("Initializing Voice Assistant...")
         
         # Show Silero VAD model cache information
-        print("DEBUG: About to show cache info")
         print_cache_info()
-        print("DEBUG: Cache info displayed")
         
         # List available audio devices
-        print("DEBUG: About to list audio devices")
         devices = list_audio_devices()
-        print("DEBUG: Audio devices listed")
         
         if devices:
             logger.info("\nAvailable audio input devices:")
@@ -99,18 +114,15 @@ class VoiceAssistant:
         else:
             logger.warning("No audio input devices found!")
             
-        print("DEBUG: About to initialize audio components")
         self.recorder = AudioRecorder()
-        print("DEBUG: AudioRecorder initialized")
         self.speech_to_text = SpeechToText()
-        print("DEBUG: SpeechToText initialized")
         self.ai_processor = AIProcessor()
-        print("DEBUG: AIProcessor initialized")
         self.text_to_speech = TextToSpeech()
-        print("DEBUG: TextToSpeech initialized")
         self.audio_player = AudioPlayer()
-        print("DEBUG: AudioPlayer initialized")
         self.running = False
+        
+        # Show AI models information
+        print_ai_models_info(self.ai_processor)
         
         # Conversation memory
         self.conversation_history = []
@@ -189,12 +201,12 @@ class VoiceAssistant:
                 
                 # Log all timings
                 total_time = time.time() - stt_start
-                logger.info("\n=== Processing Times ===")
-                logger.info(f"Speech to Text: {stt_time:.2f}s")
-                logger.info(f"AI Processing: {ai_time:.2f}s")
-                logger.info(f"Text to Speech & Streaming: {tts_time:.2f}s")
-                logger.info(f"Total Time: {total_time:.2f}s")
-                logger.info("=====================")
+                print("\n=== Processing Times ===")
+                print(f"Speech to Text: {stt_time:.2f}s")
+                print(f"AI Processing ({model}): {ai_time:.2f}s")
+                print(f"Text to Speech & Streaming: {tts_time:.2f}s")
+                print(f"Total Time: {total_time:.2f}s")
+                print("=====================")
                 
         except Exception as e:
             logger.error(f"Error processing speech: {e}")

@@ -11,7 +11,8 @@ import openai
 from utils.config import (
     OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY,
     AI_PROVIDER, CHATGPT_MODEL, CLAUDE_MODEL, DEEPSEEK_MODEL,
-    SYSTEM_PROMPT
+    SYSTEM_PROMPT, USE_LOCAL_LLM, OLLAMA_URL, LOCAL_LLM_MODEL,
+    LOCAL_LLM_TEMPERATURE, LOCAL_LLM_MAX_TOKENS
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class AIProcessor:
         self.openai_client = None
         self.anthropic_client = None
         self.deepseek_api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.local_llm_processor = None
         self._initialize_clients()
         
     def _initialize_clients(self):
@@ -30,6 +32,20 @@ class AIProcessor:
             
         if ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "your_anthropic_api_key_here":
             self.anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            
+        # Initialize local LLM processor if enabled
+        if USE_LOCAL_LLM:
+            try:
+                from .local_llm_processor import LocalLLMProcessor
+                self.local_llm_processor = LocalLLMProcessor(base_url=OLLAMA_URL)
+                if self.local_llm_processor.is_available():
+                    logger.info("Local LLM processor initialized successfully")
+                else:
+                    logger.warning("Local LLM is enabled but Ollama is not available")
+            except ImportError as e:
+                logger.error(f"Failed to import LocalLLMProcessor: {e}")
+            except Exception as e:
+                logger.error(f"Failed to initialize local LLM processor: {e}")
     
     def process_with_all_available(self, text, conversation_history=None):
         """
@@ -55,9 +71,13 @@ class AIProcessor:
         if DEEPSEEK_API_KEY and DEEPSEEK_API_KEY != "your_deepseek_api_key_here":
             model_processors.append((self._process_with_deepseek, "deepseek"))
             
+        # Add local LLM if available
+        if self.local_llm_processor and self.local_llm_processor.is_available():
+            model_processors.append((self._process_with_local_llm, "local_llm"))
+            
         if not model_processors:
-            logger.error("No API keys configured. Please add at least one API key in config.py")
-            return None, "Error: No API keys configured"
+            logger.error("No AI models configured. Please add at least one API key or enable local LLM in config.py")
+            return None, "Error: No AI models configured"
             
         # Use only the specified provider if set
         if AI_PROVIDER != "fastest":
@@ -67,6 +87,7 @@ class AIProcessor:
                     if response:
                         processing_time = time.time() - start_time
                         logger.info(f"Got response from {name} in {processing_time:.2f} seconds")
+                        print(f"AI processing finished ({name}): '{response[:100]}{'...' if len(response) > 100 else ''}'")
                         return name, response
             
             # Fallback to any available provider if specified one fails
@@ -90,11 +111,13 @@ class AIProcessor:
                     if result:
                         processing_time = time.time() - start_time
                         logger.info(f"Got response from {model_name} in {processing_time:.2f} seconds")
+                        print(f"AI processing finished ({model_name}): '{result[:100]}{'...' if len(result) > 100 else ''}'")
                         return model_name, result
                 except Exception as e:
                     logger.error(f"Error with {model_name}: {e}")
         
         # If all models fail, return an error
+        print("AI processing finished: All models failed")
         return None, "Error: All AI models failed to generate a response"
     
     def _process_with_chatgpt(self, text, conversation_history=None):
@@ -197,3 +220,56 @@ class AIProcessor:
         except Exception as e:
             logger.error(f"Error with DeepSeek: {e}")
             return None
+            
+    def _process_with_local_llm(self, text, conversation_history=None):
+        """Process text with local LLM using Ollama."""
+        if not self.local_llm_processor:
+            logger.error("Local LLM processor not initialized")
+            return None
+            
+        try:
+            response = self.local_llm_processor.process_with_model(
+                text=text,
+                model_name=LOCAL_LLM_MODEL,
+                conversation_history=conversation_history,
+                temperature=LOCAL_LLM_TEMPERATURE,
+                max_tokens=LOCAL_LLM_MAX_TOKENS
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error with local LLM: {e}")
+            return None
+            
+    def get_available_models(self):
+        """Get information about available models."""
+        models_info = {}
+        
+        if self.openai_client:
+            models_info["chatgpt"] = {"status": "available", "model": CHATGPT_MODEL}
+        else:
+            models_info["chatgpt"] = {"status": "unavailable", "reason": "API key not configured"}
+            
+        if self.anthropic_client:
+            models_info["claude"] = {"status": "available", "model": CLAUDE_MODEL}
+        else:
+            models_info["claude"] = {"status": "unavailable", "reason": "API key not configured"}
+            
+        if DEEPSEEK_API_KEY and DEEPSEEK_API_KEY != "your_deepseek_api_key_here":
+            models_info["deepseek"] = {"status": "available", "model": DEEPSEEK_MODEL}
+        else:
+            models_info["deepseek"] = {"status": "unavailable", "reason": "API key not configured"}
+            
+        if self.local_llm_processor:
+            if self.local_llm_processor.is_available():
+                available_models = self.local_llm_processor.get_available_models()
+                models_info["local_llm"] = {
+                    "status": "available", 
+                    "model": LOCAL_LLM_MODEL,
+                    "available_models": available_models
+                }
+            else:
+                models_info["local_llm"] = {"status": "unavailable", "reason": "Ollama not running or no models available"}
+        else:
+            models_info["local_llm"] = {"status": "unavailable", "reason": "Local LLM not enabled"}
+            
+        return models_info

@@ -31,3 +31,4 @@ pygame
 # Silero VAD dependencies
 torch
 torchaudio
+silero-vad

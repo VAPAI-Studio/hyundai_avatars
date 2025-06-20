@@ -65,21 +65,123 @@ class AudioRecorder:
                 logger.info("Downloading Silero VAD model (this may take a few minutes on first run)...")
                 print("DEBUG: Will download model")
             
+            # Windows-specific workaround for torch.hub.load issues
+            import platform
+            if platform.system() == "Windows":
+                print("DEBUG: Windows detected, using workaround for torch.hub.load")
+                # Set environment variables to help with Windows file handling
+                os.environ['TORCH_HOME'] = cache_dir
+                os.environ['HF_HOME'] = cache_dir
+                
+                # Try to clear any existing file handles
+                import gc
+                gc.collect()
+                
+                # Add a small delay to let Windows file system settle
+                import time
+                time.sleep(1)
+            
             print("DEBUG: About to call torch.hub.load")
-            self.model, self.utils = torch.hub.load(
-                repo_or_dir='snakers4/silero-vad', 
-                model='silero_vad', 
-                force_reload=False  # Use cached model if available
-            )
-            print("DEBUG: torch.hub.load completed")
+            
+            # Try multiple approaches for loading the model
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    self.model, self.utils = torch.hub.load(
+                        repo_or_dir='snakers4/silero-vad', 
+                        model='silero_vad', 
+                        force_reload=False,  # Use cached model if available
+                        trust_repo=True  # Trust the repository
+                    )
+                    print(f"DEBUG: torch.hub.load completed successfully on attempt {attempt + 1}")
+                    break
+                except Exception as e:
+                    print(f"DEBUG: Attempt {attempt + 1} failed: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"DEBUG: Retrying in 2 seconds...")
+                        time.sleep(2)
+                        # Force garbage collection before retry
+                        gc.collect()
+                    else:
+                        # If all torch.hub.load attempts fail, try alternative method
+                        print("DEBUG: All torch.hub.load attempts failed, trying alternative method")
+                        self._load_vad_model_alternative()
+                        return
+            
             self.get_speech_timestamps = self.utils[0]
             print("DEBUG: get_speech_timestamps assigned")
             logger.info("Silero VAD model loaded successfully")
             print("DEBUG: _load_vad_model completed successfully")
+            
         except Exception as e:
             print(f"DEBUG: Error in _load_vad_model: {e}")
             logger.error(f"Failed to load Silero VAD model: {e}")
-            raise
+            
+            # Provide helpful error message and suggestions
+            error_msg = f"Failed to load Silero VAD model: {e}"
+            if "Controlador no válido" in str(e) or "Invalid handle" in str(e):
+                error_msg += "\n\nThis is a Windows-specific file handle issue. Try the following:"
+                error_msg += "\n1. Restart your Python environment"
+                error_msg += "\n2. Clear the model cache: python utils/check_cache.py clear"
+                error_msg += "\n3. Run as administrator if the issue persists"
+                error_msg += "\n4. Check if antivirus software is blocking the download"
+            
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+    def _load_vad_model_alternative(self):
+        """Alternative method to load Silero VAD model using direct import."""
+        try:
+            print("DEBUG: Using alternative VAD model loading method")
+            logger.info("Loading Silero VAD model using alternative method...")
+            
+            # Try to import silero-vad directly
+            try:
+                from silero_vad import load_model, get_speech_timestamps
+                self.model = load_model()
+                self.get_speech_timestamps = get_speech_timestamps
+                print("DEBUG: Successfully loaded using direct silero_vad import")
+                logger.info("Silero VAD model loaded using direct import")
+                return
+            except ImportError:
+                print("DEBUG: silero_vad package not available, trying manual download")
+            
+            # Manual download and setup
+            import urllib.request
+            import zipfile
+            import tempfile
+            
+            # Download the model files manually
+            model_url = "https://github.com/snakers4/silero-vad/archive/refs/heads/master.zip"
+            cache_dir = torch.hub.get_dir()
+            model_path = f"{cache_dir}/snakers4_silero-vad_master"
+            
+            if not os.path.exists(model_path):
+                print("DEBUG: Downloading model manually...")
+                with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_file:
+                    urllib.request.urlretrieve(model_url, temp_file.name)
+                    
+                    # Extract the zip file
+                    with zipfile.ZipFile(temp_file.name, 'r') as zip_ref:
+                        zip_ref.extractall(cache_dir)
+                
+                # Clean up temp file
+                os.unlink(temp_file.name)
+            
+            # Now try to load using torch.hub.load with local path
+            self.model, self.utils = torch.hub.load(
+                repo_or_dir=model_path,
+                model='silero_vad',
+                source='local'
+            )
+            
+            self.get_speech_timestamps = self.utils[0]
+            print("DEBUG: Alternative method completed successfully")
+            logger.info("Silero VAD model loaded using alternative method")
+            
+        except Exception as e:
+            print(f"DEBUG: Alternative method also failed: {e}")
+            raise RuntimeError(f"All methods to load Silero VAD model failed: {e}")
         
     def start_listening(self):
         """Start listening for audio in a background thread."""
@@ -194,6 +296,7 @@ class AudioRecorder:
                 # No speech detected, check timeout
                 if hasattr(self, 'last_speech_time'):
                     if time.time() - self.last_speech_time > SILENCE_TIMEOUT:
+                        print("VAD detected user stopped speaking")
                         self._stop_recording()
             else:
                 # Update last speech time

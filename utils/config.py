@@ -23,6 +23,14 @@ class Config:
         self.CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "gpt-4o-mini")
         self.CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet")
         self.DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        
+        # Local LLM Settings (Ollama)
+        self.USE_LOCAL_LLM = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+        self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "mistral:7b")
+        self.LOCAL_LLM_TEMPERATURE = float(os.getenv("LOCAL_LLM_TEMPERATURE", "0.7"))
+        self.LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", "500"))
+        
         self.SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "Eres un asistente de voz útil y amigable, contestas preguntas de la marca Hyundai. 1. Responde en español de manera natural y conversacional. 2. Muchas veces la informacion te va a llegar entrecortada, intenta completar la pregunta del usuario segun el contexto. 3. No le digas nunca que la pregunta esta incompleta, intenta completarla segun el contexto. 4. Siempre que puedas, intenta completar la pregunta del usuario segun el contexto.")
 
         # Language Settings
